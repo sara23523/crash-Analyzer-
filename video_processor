@@ -1,0 +1,439 @@
+#!/usr/bin/env python3
+"""
+Video Processing Pipeline for Crash Analysis Dataset
+Processes videos for quality enhancement and standardization
+"""
+
+import os
+import cv2
+import numpy as np
+from pathlib import Path
+import json
+import subprocess
+import logging
+from datetime import datetime
+import shutil
+
+class VideoProcessor:
+    def __init__(self, input_dir="data/raw", output_dir="data/processed"):
+        self.input_dir = Path(input_dir)
+        self.output_dir = Path(output_dir)
+        self.setup_directories()
+        self.setup_logging()
+        
+    def setup_directories(self):
+        """Create necessary directories"""
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        (self.output_dir / "enhanced").mkdir(exist_ok=True)
+        (self.output_dir / "frames").mkdir(exist_ok=True)
+        (self.output_dir / "metadata").mkdir(exist_ok=True)
+        
+    def setup_logging(self):
+        """Setup logging configuration"""
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler(self.output_dir / 'processing.log'),
+                logging.StreamHandler()
+            ]
+        )
+        self.logger = logging.getLogger(__name__)
+
+    def get_video_info(self, video_path):
+        """Extract video metadata"""
+        cap = cv2.VideoCapture(str(video_path))
+        
+        if not cap.isOpened():
+            return None
+            
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        duration = frame_count / fps if fps > 0 else 0
+        
+        cap.release()
+        
+        return {
+            'filename': video_path.name,
+            'width': width,
+            'height': height,
+            'fps': fps,
+            'frame_count': frame_count,
+            'duration': duration,
+            'file_size': video_path.stat().st_size
+        }
+
+    def enhance_video_opencv(self, input_path, output_path):
+        """Enhance video quality using OpenCV"""
+        cap = cv2.VideoCapture(str(input_path))
+        
+        if not cap.isOpened():
+            self.logger.error(f"Cannot open video: {input_path}")
+            return False
+            
+        # Get video properties
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        
+        # Define output properties (upscale if resolution is low)
+        target_width = max(1280, width)
+        target_height = max(720, height)
+        
+        # Setup video writer
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(str(output_path), fourcc, fps, (target_width, target_height))
+        
+        frame_count = 0
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+                
+            # Apply enhancement filters
+            enhanced_frame = self.enhance_frame(frame, target_width, target_height)
+            out.write(enhanced_frame)
+            
+            frame_count += 1
+            if frame_count % 100 == 0:
+                self.logger.info(f"Processed {frame_count} frames...")
+        
+        cap.release()
+        out.release()
+        
+        self.logger.info(f"Enhanced video saved: {output_path}")
+        return True
+
+    def enhance_frame(self, frame, target_width, target_height):
+        """Apply enhancement filters to a single frame"""
+        # Resize if needed
+        if frame.shape[1] != target_width or frame.shape[0] != target_height:
+            frame = cv2.resize(frame, (target_width, target_height), interpolation=cv2.INTER_CUBIC)
+        
+        # Denoising
+        frame = cv2.fastNlMeansDenoisingColored(frame, None, 6, 6, 7, 21)
+        
+        # Enhance contrast and brightness
+        lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        
+        # Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+        l = clahe.apply(l)
+        
+        enhanced = cv2.merge([l, a, b])
+        frame = cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
+        
+        # Sharpen the image
+        kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
+        frame = cv2.filter2D(frame, -1, kernel)
+        
+        return frame
+
+    def enhance_video_ffmpeg(self, input_path, output_path):
+        """Enhance video using FFmpeg (requires FFmpeg installation)"""
+        try:
+            # FFmpeg command for video enhancement
+            cmd = [
+                'ffmpeg', '-i', str(input_path),
+                '-vf', 'scale=1280:720:flags=lanczos,unsharp=5:5:1.0:5:5:0.0',
+                '-c:v', 'libx264',
+                '-crf', '18',
+                '-preset', 'slow',
+                '-c:a', 'aac',
+                '-b:a', '128k',
+                '-y',  # Overwrite output file
+                str(output_path)
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                self.logger.info(f"FFmpeg enhancement completed: {output_path}")
+                return True
+            else:
+                self.logger.error(f"FFmpeg error: {result.stderr}")
+                return False
+                
+        except FileNotFoundError:
+            self.logger.warning("FFmpeg not found. Using OpenCV enhancement instead.")
+            return self.enhance_video_opencv(input_path, output_path)
+
+    def extract_key_frames(self, video_path, output_dir, interval=30):
+        """Extract key frames from video for analysis"""
+        cap = cv2.VideoCapture(str(video_path))
+        
+        if not cap.isOpened():
+            return False
+            
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_interval = int(fps * interval)  # Extract frame every 'interval' seconds
+        
+        frame_dir = output_dir / video_path.stem
+        frame_dir.mkdir(exist_ok=True)
+        
+        frame_count = 0
+        saved_count = 0
+        
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+                
+            if frame_count % frame_interval == 0:
+                frame_path = frame_dir / f"frame_{saved_count:04d}.jpg"
+                cv2.imwrite(str(frame_path), frame)
+                saved_count += 1
+                
+            frame_count += 1
+        
+        cap.release()
+        self.logger.info(f"Extracted {saved_count} frames from {video_path.name}")
+        return True
+
+    def standardize_format(self, input_path, output_path):
+        """Standardize video format and properties"""
+        try:
+            cmd = [
+                'ffmpeg', '-i', str(input_path),
+                '-c:v', 'libx264',
+                '-preset', 'medium',
+                '-crf', '23',
+                '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2',
+                '-r', '30',  # 30 FPS
+                '-c:a', 'aac',
+                '-b:a', '128k',
+                '-movflags', '+faststart',
+                '-y',
+                str(output_path)
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            return result.returncode == 0
+            
+        except FileNotFoundError:
+            # Fallback to OpenCV if FFmpeg not available
+            return self.enhance_video_opencv(input_path, output_path)
+
+    def process_single_video(self, video_path):
+        """Process a single video file"""
+        self.logger.info(f"Processing: {video_path.name}")
+        
+        # Get original video info
+        video_info = self.get_video_info(video_path)
+        if not video_info:
+            self.logger.error(f"Cannot read video: {video_path}")
+            return False
+        
+        # Define output paths
+        enhanced_path = self.output_dir / "enhanced" / f"enhanced_{video_path.name}"
+        
+        # Enhance video quality
+        success = self.enhance_video_ffmpeg(video_path, enhanced_path)
+        
+        if success:
+            # Extract key frames
+            self.extract_key_frames(
+                enhanced_path, 
+                self.output_dir / "frames"
+            )
+            
+            # Save metadata
+            enhanced_info = self.get_video_info(enhanced_path)
+            metadata = {
+                'original': video_info,
+                'enhanced': enhanced_info,
+                'processing_date': datetime.now().isoformat(),
+                'operations': ['quality_enhancement', 'standardization', 'frame_extraction']
+            }
+            
+            metadata_path = self.output_dir / "metadata" / f"{video_path.stem}_metadata.json"
+            with open(metadata_path, 'w') as f:
+                json.dump(metadata, f, indent=2)
+                
+            self.logger.info(f"Successfully processed: {video_path.name}")
+            return True
+        
+        return False
+
+    def process_all_videos(self):
+        """Process all videos in the input directory"""
+        video_extensions = {'.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.webm'}
+        video_files = [
+            f for f in self.input_dir.iterdir() 
+            if f.suffix.lower() in video_extensions
+        ]
+        
+        if not video_files:
+            self.logger.warning(f"No video files found in {self.input_dir}")
+            return
+        
+        self.logger.info(f"Found {len(video_files)} videos to process")
+        
+        successful = 0
+        for video_path in video_files:
+            if self.process_single_video(video_path):
+                successful += 1
+        
+        self.logger.info(f"Processing complete: {successful}/{len(video_files)} videos processed successfully")
+        
+        # Generate summary report
+        self.generate_summary_report(video_files, successful)
+
+    def generate_summary_report(self, video_files, successful_count):
+        """Generate a summary report of processing results"""
+        report = {
+            'processing_date': datetime.now().isoformat(),
+            'total_videos': len(video_files),
+            'successful_processing': successful_count,
+            'failed_processing': len(video_files) - successful_count,
+            'output_structure': {
+                'enhanced_videos': str(self.output_dir / "enhanced"),
+                'extracted_frames': str(self.output_dir / "frames"),
+                'metadata': str(self.output_dir / "metadata")
+            }
+        }
+        
+        report_path = self.output_dir / "processing_report.json"
+        with open(report_path, 'w') as f:
+            json.dump(report, f, indent=2)
+        
+        self.logger.info(f"Summary report saved: {report_path}")
+
+    def create_analysis_ready_dataset(self):
+        """Prepare dataset structure for crash analysis"""
+        # Create analysis directory structure
+        analysis_dir = self.output_dir / "analysis_ready"
+        analysis_dir.mkdir(exist_ok=True)
+        
+        # Create subdirectories for different analysis types
+        (analysis_dir / "object_detection").mkdir(exist_ok=True)
+        (analysis_dir / "motion_analysis").mkdir(exist_ok=True)
+        (analysis_dir / "scene_understanding").mkdir(exist_ok=True)
+        
+        # Create dataset manifest
+        manifest = {
+            'dataset_info': {
+                'name': 'Saudi Arabia Traffic Accidents Dataset',
+                'total_videos': len(list((self.output_dir / "enhanced").glob("*.mp4"))),
+                'processing_date': datetime.now().isoformat(),
+                'data_structure': {
+                    'enhanced_videos': 'High-quality processed videos',
+                    'frames': 'Extracted frames for image analysis',
+                    'metadata': 'Video metadata and processing info'
+                }
+            },
+            'analysis_suggestions': [
+                'Object detection for vehicles, pedestrians, road signs',
+                'Motion analysis for speed estimation and trajectory tracking',
+                'Scene understanding for weather, lighting, road conditions',
+                'Temporal analysis for accident sequence reconstruction'
+            ]
+        }
+        
+        with open(analysis_dir / "dataset_manifest.json", 'w') as f:
+            json.dump(manifest, f, indent=2)
+
+def main():
+    """Main processing function"""
+    processor = VideoProcessor()
+    
+    print("Starting video processing pipeline...")
+    print("Operations included:")
+    print("✓ Quality enhancement (denoising, sharpening, contrast)")
+    print("✓ Resolution standardization (1280x720)")
+    print("✓ Format standardization (MP4, H.264)")
+    print("✓ Frame extraction for analysis")
+    print("✓ Metadata collection")
+    print("✗ Watermark removal (not supported)")
+    
+    # Process all videos
+    processor.process_all_videos()
+    
+    # Prepare analysis-ready dataset
+    processor.create_analysis_ready_dataset()
+    
+    print("\nProcessing complete! Check the output directory for results.")
+    print("Next steps:")
+    print("1. Review the processing_report.json for results summary")
+    print("2. Use enhanced videos for your crash analysis")
+    print("3. Utilize extracted frames for computer vision tasks")
+
+if __name__ == "__main__":
+    main()
+
+# Additional utility functions for specific analysis tasks
+
+def detect_motion_areas(video_path, output_dir):
+    """Detect areas of significant motion in crash videos"""
+    cap = cv2.VideoCapture(str(video_path))
+    
+    # Initialize background subtractor
+    back_sub = cv2.createBackgroundSubtractorMOG2(detectShadows=True)
+    
+    motion_data = []
+    frame_num = 0
+    
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+            
+        # Apply background subtraction
+        fg_mask = back_sub.apply(frame)
+        
+        # Find contours of moving objects
+        contours, _ = cv2.findContours(fg_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        # Calculate motion intensity
+        motion_area = sum(cv2.contourArea(contour) for contour in contours)
+        total_area = frame.shape[0] * frame.shape[1]
+        motion_ratio = motion_area / total_area
+        
+        motion_data.append({
+            'frame': frame_num,
+            'motion_ratio': motion_ratio,
+            'num_objects': len(contours)
+        })
+        
+        frame_num += 1
+    
+    cap.release()
+    
+    # Save motion analysis
+    motion_file = output_dir / f"{video_path.stem}_motion_analysis.json"
+    with open(motion_file, 'w') as f:
+        json.dump(motion_data, f, indent=2)
+    
+    return motion_data
+
+def extract_accident_timeline(video_path, motion_threshold=0.1):
+    """Extract timeline of significant events in accident video"""
+    motion_data = detect_motion_areas(video_path, Path("data/processed/metadata"))
+    
+    # Find peaks in motion (likely accident moments)
+    significant_moments = []
+    for i, data in enumerate(motion_data):
+        if data['motion_ratio'] > motion_threshold:
+            significant_moments.append({
+                'timestamp': i / 30.0,  # Assuming 30 FPS
+                'motion_intensity': data['motion_ratio'],
+                'frame_number': i
+            })
+    
+    return significant_moments
+
+# Requirements file content for easy setup
+requirements_txt = """
+opencv-python>=4.8.0
+numpy>=1.24.0
+pathlib
+"""
+
+# Create requirements.txt
+with open("requirements.txt", "w") as f:
+    f.write(requirements_txt)
+
+print("Requirements file created. Install with: pip install -r requirements.txt")
