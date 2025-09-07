@@ -1,0 +1,500 @@
+# demo_data.py - Generate demo videos and test the system
+import cv2
+import numpy as np
+import os
+from pathlib import Path
+import json
+import requests
+import time
+
+class DemoVideoGenerator:
+    def __init__(self):
+        self.width = 1280
+        self.height = 720
+        self.fps = 30
+        self.demo_dir = Path('demo_videos')
+        self.demo_dir.mkdir(exist_ok=True)
+    
+    def create_simple_collision_video(self, filename='demo_collision.mp4', duration=10):
+        """Create a simple collision simulation video"""
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(str(self.demo_dir / filename), fourcc, self.fps, (self.width, self.height))
+        
+        total_frames = duration * self.fps
+        
+        for frame_num in range(total_frames):
+            # Create background (road)
+            frame = np.zeros((self.height, self.width, 3), dtype=np.uint8)
+            frame[:] = (50, 50, 50)  # Dark gray background
+            
+            # Draw road lines
+            cv2.line(frame, (0, self.height//2), (self.width, self.height//2), (255, 255, 255), 2)
+            cv2.line(frame, (0, self.height//2 - 50), (self.width, self.height//2 - 50), (255, 255, 255), 2)
+            cv2.line(frame, (0, self.height//2 + 50), (self.width, self.height//2 + 50), (255, 255, 255), 2)
+            
+            # Add dashed center line
+            for x in range(0, self.width, 80):
+                cv2.line(frame, (x, self.height//2), (x + 40, self.height//2), (255, 255, 0), 2)
+            
+            # Calculate positions for two cars
+            progress = frame_num / total_frames
+            
+            # Car 1 (moving right)
+            car1_x = int(50 + progress * (self.width - 200))
+            car1_y = self.height//2 - 30
+            
+            # Car 2 (moving down, will intersect)
+            if progress > 0.3:  # Start moving after 30% of video
+                car2_progress = (progress - 0.3) / 0.7
+                car2_x = self.width//2 + 100
+                car2_y = int(100 + car2_progress * 300)
+            else:
+                car2_x = self.width//2 + 100
+                car2_y = 100
+            
+            # Draw cars
+            self.draw_car(frame, car1_x, car1_y, (0, 255, 0), "horizontal")  # Green car
+            self.draw_car(frame, car2_x, car2_y, (0, 0, 255), "vertical")    # Red car
+            
+            # Add collision effect if cars are close
+            if abs(car1_x - car2_x) < 50 and abs(car1_y - car2_y) < 50 and progress > 0.6:
+                # Add explosion effect
+                cv2.circle(frame, (car1_x + 25, car1_y + 15), 30, (0, 255, 255), -1)
+                cv2.circle(frame, (car1_x + 25, car1_y + 15), 50, (255, 255, 255), 3)
+            
+            # Add timestamp
+            cv2.putText(frame, f'Time: {frame_num/self.fps:.1f}s', (10, 30), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+            
+            out.write(frame)
+        
+        out.release()
+        print(f"Demo collision video created: {self.demo_dir / filename}")
+        return str(self.demo_dir / filename)
+    
+    def create_rear_end_collision_video(self, filename='demo_rear_end.mp4', duration=8):
+        """Create a rear-end collision video"""
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(str(self.demo_dir / filename), fourcc, self.fps, (self.width, self.height))
+        
+        total_frames = duration * self.fps
+        
+        for frame_num in range(total_frames):
+            frame = np.zeros((self.height, self.width, 3), dtype=np.uint8)
+            frame[:] = (40, 60, 40)  # Dark green background
+            
+            # Draw road
+            road_y = self.height//2
+            cv2.rectangle(frame, (0, road_y - 60), (self.width, road_y + 60), (60, 60, 60), -1)
+            cv2.line(frame, (0, road_y), (self.width, road_y), (255, 255, 0), 2)
+            
+            progress = frame_num / total_frames
+            
+            # Leading car (slowing down)
+            lead_speed = 1 - progress * 0.8  # Slows down
+            lead_car_x = int(200 + progress * lead_speed * 600)
+            lead_car_y = road_y - 15
+            
+            # Following car (constant speed until collision)
+            if progress < 0.7:
+                follow_car_x = int(50 + progress * 800)
+            else:
+                # Collision happened, both cars move together
+                follow_car_x = lead_car_x - 60
+            
+            follow_car_y = road_y - 15
+            
+            # Draw cars
+            self.draw_car(frame, lead_car_x, lead_car_y, (255, 255, 0), "horizontal")   # Yellow car
+            self.draw_car(frame, follow_car_x, follow_car_y, (255, 0, 255), "horizontal") # Purple car
+            
+            # Add collision effect
+            if progress > 0.7:
+                cv2.circle(frame, (lead_car_x - 10, lead_car_y + 15), 20, (255, 255, 255), 3)
+            
+            # Add speed indicators
+            cv2.putText(frame, f'Lead: {int(lead_speed * 60)} km/h', (lead_car_x, lead_car_y - 20), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+            cv2.putText(frame, f'Follow: {60 if progress < 0.7 else 30} km/h', 
+                       (follow_car_x, follow_car_y - 20), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+            
+            out.write(frame)
+        
+        out.release()
+        print(f"Demo rear-end collision video created: {self.demo_dir / filename}")
+        return str(self.demo_dir / filename)
+    
+    def create_no_accident_video(self, filename='demo_no_accident.mp4', duration=6):
+        """Create a video with no accident"""
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(str(self.demo_dir / filename), fourcc, self.fps, (self.width, self.height))
+        
+        total_frames = duration * self.fps
+        
+        for frame_num in range(total_frames):
+            frame = np.zeros((self.height, self.width, 3), dtype=np.uint8)
+            frame[:] = (30, 50, 70)  # Blue-ish background
+            
+            # Draw road with multiple lanes
+            road_y = self.height//2
+            cv2.rectangle(frame, (0, road_y - 100), (self.width, road_y + 100), (50, 50, 50), -1)
+            
+            # Lane lines
+            for i in range(-2, 3):
+                y = road_y + i * 50
+                cv2.line(frame, (0, y), (self.width, y), (255, 255, 255), 2)
+            
+            progress = frame_num / total_frames
+            
+            # Multiple cars driving normally
+            cars = [
+                {'x': int(100 + progress * 700), 'y': road_y - 75, 'color': (0, 255, 0)},
+                {'x': int(300 + progress * 500), 'y': road_y - 25, 'color': (255, 0, 0)},
+                {'x': int(150 + progress * 600), 'y': road_y + 25, 'color': (0, 0, 255)},
+                {'x': int(50 + progress * 800), 'y': road_y + 75, 'color': (255, 255, 0)},
+            ]
+            
+            for car in cars:
+                if 0 <= car['x'] <= self.width:
+                    self.draw_car(frame, car['x'], car['y'], car['color'], "horizontal")
+            
+            # Add "Normal Traffic" text
+            cv2.putText(frame, 'Normal Traffic Flow', (self.width//2 - 150, 50), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+            
+            out.write(frame)
+        
+        out.release()
+        print(f"Demo normal traffic video created: {self.demo_dir / filename}")
+        return str(self.demo_dir / filename)
+    
+    def draw_car(self, frame, x, y, color, orientation="horizontal"):
+        """Draw a simple car representation"""
+        if orientation == "horizontal":
+            # Car body
+            cv2.rectangle(frame, (x, y), (x + 50, y + 30), color, -1)
+            cv2.rectangle(frame, (x, y), (x + 50, y + 30), (255, 255, 255), 2)
+            
+            # Windows
+            cv2.rectangle(frame, (x + 5, y + 5), (x + 20, y + 25), (100, 150, 255), -1)
+            cv2.rectangle(frame, (x + 30, y + 5), (x + 45, y + 25), (100, 150, 255), -1)
+            
+            # Wheels
+            cv2.circle(frame, (x + 10, y + 30), 8, (0, 0, 0), -1)
+            cv2.circle(frame, (x + 40, y + 30), 8, (0, 0, 0), -1)
+            cv2.circle(frame, (x + 10, y + 30), 6, (100, 100, 100), -1)
+            cv2.circle(frame, (x + 40, y + 30), 6, (100, 100, 100), -1)
+            
+        else:  # vertical
+            # Car body
+            cv2.rectangle(frame, (x, y), (x + 30, y + 50), color, -1)
+            cv2.rectangle(frame, (x, y), (x + 30, y + 50), (255, 255, 255), 2)
+            
+            # Windows
+            cv2.rectangle(frame, (x + 5, y + 5), (x + 25, y + 20), (100, 150, 255), -1)
+            cv2.rectangle(frame, (x + 5, y + 30), (x + 25, y + 45), (100, 150, 255), -1)
+            
+            # Wheels
+            cv2.circle(frame, (x, y + 10), 8, (0, 0, 0), -1)
+            cv2.circle(frame, (x + 30, y + 10), 8, (0, 0, 0), -1)
+            cv2.circle(frame, (x, y + 40), 8, (0, 0, 0), -1)
+            cv2.circle(frame, (x + 30, y + 40), 8, (0, 0, 0), -1)
+
+class SystemTester:
+    """Test the crash analyzer system with demo videos"""
+    
+    def __init__(self, api_base='http://localhost:5000/api'):
+        self.api_base = api_base
+        self.token = None
+        
+    def login(self, username='admin', password='admin123'):
+        """Login to the system"""
+        try:
+            response = requests.post(f'{self.api_base}/auth/login', json={
+                'username': username,
+                'password': password
+            })
+            
+            if response.status_code == 200:
+                data = response.json()
+                self.token = data['access_token']
+                print(f"✅ Logged in successfully as {data['user']['username']}")
+                return True
+            else:
+                print(f"❌ Login failed: {response.json()}")
+                return False
+        except Exception as e:
+            print(f"❌ Login error: {e}")
+            return False
+    
+    def upload_and_analyze(self, video_path):
+        """Upload video and wait for analysis"""
+        if not self.token:
+            print("❌ Not logged in. Please login first.")
+            return None
+            
+        headers = {'Authorization': f'Bearer {self.token}'}
+        
+        try:
+            # Upload video
+            with open(video_path, 'rb') as f:
+                files = {'video': f}
+                response = requests.post(f'{self.api_base}/upload', 
+                                       files=files, headers=headers)
+            
+            if response.status_code != 200:
+                print(f"❌ Upload failed: {response.json()}")
+                return None
+            
+            analysis_id = response.json()['analysis_id']
+            print(f"✅ Video uploaded successfully. Analysis ID: {analysis_id}")
+            
+            # Wait for analysis to complete
+            print("⏳ Waiting for analysis to complete...")
+            max_wait = 300  # 5 minutes max
+            wait_time = 0
+            
+            while wait_time < max_wait:
+                response = requests.get(f'{self.api_base}/analysis/{analysis_id}', 
+                                      headers=headers)
+                
+                if response.status_code == 200:
+                    analysis = response.json()
+                    status = analysis['status']
+                    
+                    if status == 'completed':
+                        print("✅ Analysis completed successfully!")
+                        return analysis
+                    elif status == 'error':
+                        print("❌ Analysis failed with error")
+                        return analysis
+                    else:
+                        print(f"⏳ Status: {status}")
+                        time.sleep(5)
+                        wait_time += 5
+                else:
+                    print(f"❌ Error checking status: {response.json()}")
+                    break
+            
+            print("⏰ Analysis timed out")
+            return None
+            
+        except Exception as e:
+            print(f"❌ Error during upload/analysis: {e}")
+            return None
+    
+    def test_system_health(self):
+        """Test system health endpoint"""
+        try:
+            response = requests.get(f'{self.api_base}/health')
+            if response.status_code == 200:
+                health = response.json()
+                print("🏥 System Health:")
+                print(f"   Status: {health['status']}")
+                print(f"   Device: {health['device']}")
+                print(f"   Model Loaded: {health['model_loaded']}")
+                return True
+            else:
+                print("❌ Health check failed")
+                return False
+        except Exception as e:
+            print(f"❌ Health check error: {e}")
+            return False
+    
+    def print_analysis_results(self, analysis):
+        """Print analysis results in a readable format"""
+        print("\n📊 ANALYSIS RESULTS")
+        print("=" * 50)
+        print(f"Analysis ID: {analysis['analysis_id']}")
+        print(f"Video: {analysis['video_filename']}")
+        print(f"Status: {analysis['status']}")
+        print(f"Processing Time: {analysis.get('processing_time', 0):.2f} seconds")
+        print(f"Accident Type: {analysis.get('accident_type', 'unknown')}")
+        print(f"Responsible Vehicle: {analysis.get('responsible_vehicle', 'not determined')}")
+        print(f"Confidence Score: {analysis.get('confidence_score', 0):.2f}")
+        
+        if 'results' in analysis and analysis['results']:
+            results = analysis['results']
+            if 'video_info' in results:
+                info = results['video_info']
+                print(f"Video Duration: {info.get('duration', 0):.2f} seconds")
+                print(f"Total Frames: {info.get('total_frames', 0)}")
+                print(f"FPS: {info.get('fps', 0):.2f}")
+            
+            if 'collision_events' in results and results['collision_events']:
+                print(f"Collision Events Found: {len(results['collision_events'])}")
+                for i, event in enumerate(results['collision_events']):
+                    print(f"  Event {i+1}: Frame {event.get('frame', 0)}, "
+                          f"Severity: {event.get('severity', 'unknown')}")
+        print("=" * 50)
+
+def run_full_demo():
+    """Run a complete demonstration of the system"""
+    print("🚗 CRASH ANALYZER DEMO")
+    print("=" * 60)
+    
+    # Initialize components
+    generator = DemoVideoGenerator()
+    tester = SystemTester()
+    
+    # Test system health
+    print("\n1. Testing System Health...")
+    if not tester.test_system_health():
+        print("❌ System health check failed. Make sure the backend is running.")
+        return
+    
+    # Login
+    print("\n2. Logging in...")
+    if not tester.login():
+        print("❌ Login failed. Check backend and credentials.")
+        return
+    
+    # Generate demo videos
+    print("\n3. Generating demo videos...")
+    videos = [
+        generator.create_simple_collision_video(),
+        generator.create_rear_end_collision_video(),
+        generator.create_no_accident_video()
+    ]
+    
+    # Test each video
+    for i, video_path in enumerate(videos, 1):
+        print(f"\n{3+i}. Testing video: {os.path.basename(video_path)}")
+        analysis = tester.upload_and_analyze(video_path)
+        
+        if analysis:
+            tester.print_analysis_results(analysis)
+        else:
+            print("❌ Analysis failed for this video")
+        
+        print("\n" + "-" * 60)
+    
+    print("\n🎉 Demo completed! Check the demo_videos folder for generated content.")
+    print("💡 You can also test the system manually by:")
+    print("   1. Opening the frontend in your browser")
+    print("   2. Logging in with admin/admin123")
+    print("   3. Uploading the demo videos from the demo_videos folder")
+
+def create_sample_datasets():
+    """Create sample datasets for training/testing"""
+    print("📁 Creating sample datasets...")
+    
+    datasets_dir = Path('datasets')
+    datasets_dir.mkdir(exist_ok=True)
+    
+    # Create DADA-2000 style annotations
+    sample_annotations = {
+        "info": {
+            "description": "Sample crash analysis dataset",
+            "version": "1.0",
+            "year": 2024,
+            "contributor": "Crash Analyzer Demo"
+        },
+        "videos": [
+            {
+                "id": 1,
+                "filename": "demo_collision.mp4",
+                "accident_type": "collision",
+                "responsible_vehicle": 1,
+                "confidence": 0.85,
+                "vehicles": [
+                    {"id": 0, "type": "car", "color": "green"},
+                    {"id": 1, "type": "car", "color": "red"}
+                ]
+            },
+            {
+                "id": 2,
+                "filename": "demo_rear_end.mp4",
+                "accident_type": "rear_end",
+                "responsible_vehicle": 1,
+                "confidence": 0.92,
+                "vehicles": [
+                    {"id": 0, "type": "car", "color": "yellow"},
+                    {"id": 1, "type": "car", "color": "purple"}
+                ]
+            },
+            {
+                "id": 3,
+                "filename": "demo_no_accident.mp4",
+                "accident_type": "no_accident",
+                "responsible_vehicle": None,
+                "confidence": 0.78,
+                "vehicles": [
+                    {"id": 0, "type": "car", "color": "green"},
+                    {"id": 1, "type": "car", "color": "red"},
+                    {"id": 2, "type": "car", "color": "blue"},
+                    {"id": 3, "type": "car", "color": "yellow"}
+                ]
+            }
+        ]
+    }
+    
+    # Save annotations
+    with open(datasets_dir / 'annotations.json', 'w') as f:
+        json.dump(sample_annotations, f, indent=2)
+    
+    print(f"✅ Sample dataset annotations created in {datasets_dir}")
+    
+    # Create evaluation metrics template
+    evaluation_template = {
+        "metrics": {
+            "accuracy": "Percentage of correctly classified accidents",
+            "precision": "True positives / (True positives + False positives)",
+            "recall": "True positives / (True positives + False negatives)",
+            "f1_score": "2 * (precision * recall) / (precision + recall)"
+        },
+        "test_cases": [
+            {
+                "video_id": 1,
+                "expected_result": "collision",
+                "expected_responsible": 1,
+                "actual_result": None,
+                "actual_responsible": None,
+                "correct": None
+            }
+        ]
+    }
+    
+    with open(datasets_dir / 'evaluation_template.json', 'w') as f:
+        json.dump(evaluation_template, f, indent=2)
+    
+    print(f"✅ Evaluation template created in {datasets_dir}")
+
+if __name__ == "__main__":
+    import sys
+    
+    if len(sys.argv) > 1:
+        command = sys.argv[1]
+        
+        if command == "demo":
+            run_full_demo()
+        elif command == "generate":
+            generator = DemoVideoGenerator()
+            generator.create_simple_collision_video()
+            generator.create_rear_end_collision_video()
+            generator.create_no_accident_video()
+            print("Demo videos generated!")
+        elif command == "test":
+            tester = SystemTester()
+            if tester.login():
+                tester.test_system_health()
+            else:
+                print("Login failed")
+        elif command == "datasets":
+            create_sample_datasets()
+        else:
+            print("Available commands:")
+            print("  demo     - Run full system demo")
+            print("  generate - Generate demo videos only")  
+            print("  test     - Test system health")
+            print("  datasets - Create sample datasets")
+    else:
+        print("🚗 Crash Analyzer Demo Script")
+        print("Usage: python demo_data.py [command]")
+        print("\nAvailable commands:")
+        print("  demo     - Run complete system demonstration")
+        print("  generate - Generate demo videos only")
+        print("  test     - Test system health and connectivity")
+        print("  datasets - Create sample dataset files")
+        print("\nFor full demo: python demo_data.py demo")
