@@ -1,0 +1,288 @@
+# Crash Analyzer - Complete Setup Guide
+
+## 📋 Requirements
+
+### Backend Requirements (requirements.txt)
+```
+Flask==2.3.3
+Flask-CORS==4.0.0
+Flask-JWT-Extended==4.5.3
+opencv-python==4.8.1.78
+ultralytics==8.0.200
+torch==2.0.1
+torchvision==0.15.2
+numpy==1.24.3
+sqlite3
+Pillow==10.0.0
+reportlab==4.0.4
+pathlib
+hashlib
+uuid
+threading
+werkzeug==2.3.7
+logging
+```
+
+### Frontend Requirements
+- Modern web browser (Chrome, Firefox, Safari, Edge)
+- Internet connection for initial setup (CDN resources)
+- No additional installation required
+
+## 🚀 Quick Start Installation
+
+### Step 1: Backend Setup
+
+1. **Create Project Directory**
+```bash
+mkdir crash-analyzer
+cd crash-analyzer
+```
+
+2. **Set up Python Virtual Environment**
+```bash
+python -m venv venv
+
+# Windows
+venv\Scripts\activate
+
+# Linux/Mac
+source venv/bin/activate
+```
+
+3. **Install Dependencies**
+```bash
+pip install flask flask-cors flask-jwt-extended opencv-python ultralytics torch torchvision numpy pillow reportlab werkzeug
+```
+
+4. **Create Directory Structure**
+```bash
+mkdir uploads results models
+```
+
+5. **Save Backend Code**
+- Save the Flask backend code as `app.py`
+
+6. **Run Backend Server**
+```bash
+python app.py
+```
+Backend will start on `http://localhost:5000`
+
+### Step 2: Frontend Setup
+
+1. **Save Frontend Code**
+- Save the HTML/React code as `index.html`
+
+2. **Open in Browser**
+- Open `index.html` in any modern web browser
+- Or serve via simple HTTP server:
+```bash
+# Python 3
+python -m http.server 3000
+
+# Node.js (if available)
+npx serve -s . -l 3000
+```
+
+### Step 3: First Run
+
+1. **Access Application**
+   - Open browser to `http://localhost:3000` (if using server) or open `index.html` directly
+
+2. **Login**
+   - Username: `admin`
+   - Password: `admin123`
+
+3. **Upload Test Video**
+   - Use any dashcam footage in MP4, AVI, MOV, or WebM format
+   - Maximum file size: 500MB
+
+## 🔧 Configuration Options
+
+### Environment Variables (Optional)
+Create `.env` file in project root:
+```
+FLASK_ENV=development
+JWT_SECRET_KEY=your-secret-key-here
+MAX_FILE_SIZE=524288000  # 500MB in bytes
+UPLOAD_FOLDER=uploads
+RESULTS_FOLDER=results
+```
+
+### Database Configuration
+- Default: SQLite (`crash_analyzer.db`)
+- For production: Replace with PostgreSQL/MySQL in `DatabaseManager` class
+
+### Model Configuration
+- Default: YOLOv8n (lightweight)
+- For better accuracy: Change to `yolov8s.pt`, `yolov8m.pt`, or `yolov8l.pt` in `CrashAnalyzer.__init__`
+
+## 📱 Supported Features
+
+### ✅ Current Features
+- **Multi-format Video Support**: MP4, AVI, MOV, WebM
+- **AI Vehicle Detection**: YOLOv8-based detection
+- **Vehicle Tracking**: Centroid-based tracking
+- **Collision Analysis**: Physics-based collision detection
+- **Responsibility Determination**: Rule-based fault analysis
+- **Bilingual Interface**: English/Arabic support
+- **PDF Report Generation**: Professional reports
+- **User Authentication**: Role-based access
+- **Real-time Analysis Status**: Live progress updates
+- **Offline Operation**: No internet required after setup
+
+### 🔮 Planned Features (Future Versions)
+- Real-time dashcam feed analysis
+- Advanced ML models for responsibility
+- Integration with Saudi traffic databases
+- Mobile app version
+- Advanced analytics dashboard
+- Multi-camera angle support
+
+## 🛠️ Troubleshooting
+
+### Common Issues & Solutions
+
+1. **YOLO Model Download Fails**
+```bash
+# Manual download
+pip install ultralytics
+python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
+```
+
+2. **CORS Issues**
+- Ensure Flask-CORS is installed
+- Backend runs on port 5000, frontend on different port
+
+3. **Video Upload Fails**
+- Check file size (<500MB)
+- Verify video format (MP4, AVI, MOV, WebM)
+- Ensure `uploads/` directory exists
+
+4. **Analysis Stuck on Processing**
+- Check backend console for errors
+- Verify YOLO model loaded successfully
+- Check available disk space
+
+5. **Poor Analysis Accuracy**
+- Use higher resolution videos (720p+)
+- Ensure good video quality
+- Try different lighting conditions
+
+### Performance Optimization
+
+**For CPU-only Systems:**
+- Use YOLOv8n (nano) model
+- Reduce video resolution before processing
+- Process shorter video clips
+
+**For GPU Systems:**
+- Install CUDA-compatible PyTorch
+- Use larger YOLO models (yolov8m, yolov8l)
+- Enable GPU in model loading
+
+## 📊 Technical Architecture
+
+### Backend Stack
+- **Framework**: Flask (Python)
+- **AI/ML**: YOLOv8, OpenCV, PyTorch
+- **Database**: SQLite (development) / PostgreSQL (production)
+- **Authentication**: JWT tokens
+- **File Processing**: OpenCV, PIL
+
+### Frontend Stack
+- **Framework**: React (via CDN)
+- **Styling**: Tailwind CSS
+- **Icons**: Lucide React
+- **HTTP Client**: Axios
+- **Languages**: English/Arabic
+
+### Data Flow
+1. **Upload**: Video → Flask backend → File system
+2. **Processing**: Video → OpenCV → YOLOv8 → Analysis results
+3. **Storage**: Results → SQLite database
+4. **Retrieval**: Frontend polls backend → JSON response
+5. **Export**: Analysis → PDF generation → Download
+
+## 🔒 Security Considerations
+
+### Production Deployment
+- Change default admin password
+- Use strong JWT secret key
+- Implement file size/type validation
+- Use HTTPS in production
+- Set up proper CORS policies
+- Implement rate limiting
+- Add input sanitization
+
+### Data Privacy
+- Videos stored locally (not cloud)
+- Analysis results can be deleted
+- User access controls implemented
+- Offline operation maintains privacy
+
+## 🌍 Localization
+
+### Adding New Languages
+1. Add translations to `translations` object in frontend
+2. Update language selector in settings
+3. Add RTL support for Arabic-like languages
+
+### Current Language Support
+- **English**: Complete interface
+- **Arabic**: Complete interface with RTL support
+
+## 📈 Production Scaling
+
+### For High Volume Usage
+- Use PostgreSQL/MySQL database
+- Implement Redis for caching
+- Add queue system (Celery) for processing
+- Use cloud storage for videos
+- Implement load balancing
+- Add monitoring (Prometheus/Grafana)
+
+### API Rate Limiting
+```python
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
+limiter = Limiter(
+    app,
+    key_func=get_remote_address,
+    default_limits=["200 per day", "50 per hour"]
+)
+```
+
+## 📞 Support & Contribution
+
+### Getting Help
+- Check troubleshooting section above
+- Review backend logs in console
+- Test with sample videos first
+
+### Contributing
+- Fork the repository
+- Create feature branch
+- Add tests for new features
+- Submit pull request
+
+### License
+This project is designed for educational and commercial use in Saudi Arabia's traffic safety initiatives.
+
+---
+
+## 🎯 Saudi Arabia Specific Features
+
+### Planned Integrations
+- **MOI Traffic Database**: Integration with Ministry of Interior
+- **Insurance Companies**: Direct report submission
+- **Arabic Language Processing**: Enhanced Arabic interface
+- **Local Traffic Laws**: Saudi-specific responsibility rules
+- **Hajj/Umrah Traffic**: Special event handling
+
+### Compliance
+- Follows Saudi data protection regulations
+- Supports Arabic language requirements
+- Designed for local traffic patterns
+- Compatible with Saudi insurance systems
