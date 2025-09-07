@@ -1,0 +1,1074 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crash Analyzer - AI-Powered Traffic Accident Analysis</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="https://unpkg.com/lucide-react@latest/dist/umd/lucide-react.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        }
+        
+        .glass-card {
+            backdrop-filter: blur(20px);
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+        }
+        
+        .gradient-text {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .upload-area {
+            border: 2px dashed rgba(255, 255, 255, 0.3);
+            transition: all 0.3s ease;
+        }
+        
+        .upload-area:hover {
+            border-color: rgba(255, 255, 255, 0.6);
+            background: rgba(255, 255, 255, 0.05);
+        }
+        
+        .progress-bar {
+            background: linear-gradient(90deg, #4f46e5, #7c3aed);
+            transition: width 0.3s ease;
+        }
+        
+        .status-badge {
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        
+        .result-card {
+            transform: translateY(10px);
+            opacity: 0;
+            animation: slideUp 0.6s ease forwards;
+        }
+        
+        @keyframes slideUp {
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+        
+        .ar-text {
+            direction: rtl;
+            text-align: right;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useCallback, useRef } = React;
+        const { 
+            Upload, 
+            Play, 
+            AlertCircle, 
+            CheckCircle, 
+            Clock, 
+            Car, 
+            Shield, 
+            Download,
+            BarChart3,
+            Settings,
+            User,
+            LogOut,
+            Globe,
+            FileVideo,
+            Activity
+        } = lucide;
+
+        // API Base URL
+        const API_BASE = 'http://localhost:5000/api';
+
+        // Language Context
+        const LanguageContext = React.createContext();
+
+        const translations = {
+            en: {
+                title: "Crash Analyzer",
+                subtitle: "AI-Powered Traffic Accident Analysis",
+                login: "Login",
+                username: "Username",
+                password: "Password",
+                loginButton: "Sign In",
+                dashboard: "Dashboard",
+                uploadVideo: "Upload Video",
+                myAnalyses: "My Analyses",
+                settings: "Settings",
+                logout: "Logout",
+                dragDrop: "Drag & drop your dashcam video here",
+                orClick: "or click to browse",
+                supportedFormats: "Supported formats: MP4, AVI, MOV, WebM (max 500MB)",
+                analyzing: "Analyzing",
+                processing: "Processing video...",
+                completed: "Analysis Complete",
+                error: "Analysis Failed",
+                uploadSuccess: "Video uploaded successfully",
+                analysisResults: "Analysis Results",
+                accidentType: "Accident Type",
+                responsibleVehicle: "Responsible Vehicle",
+                confidence: "Confidence Score",
+                processingTime: "Processing Time",
+                downloadReport: "Download PDF Report",
+                noAccident: "No Accident Detected",
+                collision: "Collision Detected",
+                vehicle: "Vehicle",
+                seconds: "seconds",
+                loading: "Loading...",
+                recentAnalyses: "Recent Analyses",
+                status: "Status",
+                fileName: "File Name",
+                date: "Date",
+                viewDetails: "View Details",
+                systemHealth: "System Health",
+                modelStatus: "AI Model",
+                deviceInfo: "Processing Device",
+                languageSettings: "Language Settings",
+                english: "English",
+                arabic: "العربية"
+            },
+            ar: {
+                title: "محلل الحوادث",
+                subtitle: "تحليل حوادث المرور بالذكاء الاصطناعي",
+                login: "تسجيل الدخول",
+                username: "اسم المستخدم",
+                password: "كلمة المرور",
+                loginButton: "دخول",
+                dashboard: "لوحة القيادة",
+                uploadVideo: "رفع الفيديو",
+                myAnalyses: "تحليلاتي",
+                settings: "الإعدادات",
+                logout: "خروج",
+                dragDrop: "اسحب وأفلت فيديو كاميرا السيارة هنا",
+                orClick: "أو انقر للاستعراض",
+                supportedFormats: "الصيغ المدعومة: MP4, AVI, MOV, WebM (حد أقصى 500 ميجابايت)",
+                analyzing: "جاري التحليل",
+                processing: "جاري معالجة الفيديو...",
+                completed: "اكتمل التحليل",
+                error: "فشل التحليل",
+                uploadSuccess: "تم رفع الفيديو بنجاح",
+                analysisResults: "نتائج التحليل",
+                accidentType: "نوع الحادث",
+                responsibleVehicle: "المركبة المسؤولة",
+                confidence: "مستوى الثقة",
+                processingTime: "وقت المعالجة",
+                downloadReport: "تحميل تقرير PDF",
+                noAccident: "لم يتم اكتشاف حادث",
+                collision: "تم اكتشاف تصادم",
+                vehicle: "مركبة",
+                seconds: "ثانية",
+                loading: "جاري التحميل...",
+                recentAnalyses: "التحليلات الحديثة",
+                status: "الحالة",
+                fileName: "اسم الملف",
+                date: "التاريخ",
+                viewDetails: "عرض التفاصيل",
+                systemHealth: "حالة النظام",
+                modelStatus: "نموذج الذكاء الاصطناعي",
+                deviceInfo: "جهاز المعالجة",
+                languageSettings: "إعدادات اللغة",
+                english: "English",
+                arabic: "العربية"
+            }
+        };
+
+        // Authentication Hook
+        const useAuth = () => {
+            const [user, setUser] = useState(null);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                const token = localStorage.getItem('token');
+                const userData = localStorage.getItem('user');
+                
+                if (token && userData) {
+                    setUser(JSON.parse(userData));
+                    axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+                }
+                setLoading(false);
+            }, []);
+
+            const login = async (username, password) => {
+                try {
+                    const response = await axios.post(`${API_BASE}/auth/login`, {
+                        username,
+                        password
+                    });
+
+                    const { access_token, user: userData } = response.data;
+                    
+                    localStorage.setItem('token', access_token);
+                    localStorage.setItem('user', JSON.stringify(userData));
+                    axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
+                    
+                    setUser(userData);
+                    return { success: true };
+                } catch (error) {
+                    return { 
+                        success: false, 
+                        error: error.response?.data?.error || 'Login failed' 
+                    };
+                }
+            };
+
+            const logout = () => {
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+                delete axios.defaults.headers.common['Authorization'];
+                setUser(null);
+            };
+
+            return { user, login, logout, loading };
+        };
+
+        // Login Component
+        const LoginForm = ({ onLogin }) => {
+            const [username, setUsername] = useState('admin');
+            const [password, setPassword] = useState('admin123');
+            const [isLoading, setIsLoading] = useState(false);
+            const [error, setError] = useState('');
+            const { language } = React.useContext(LanguageContext);
+            const t = translations[language];
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                setIsLoading(true);
+                setError('');
+
+                const result = await onLogin(username, password);
+                
+                if (!result.success) {
+                    setError(result.error);
+                }
+                
+                setIsLoading(false);
+            };
+
+            return (
+                <div className="min-h-screen flex items-center justify-center p-4">
+                    <div className="glass-card rounded-2xl p-8 w-full max-w-md">
+                        <div className="text-center mb-8">
+                            <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <Car className="w-8 h-8 text-white" />
+                            </div>
+                            <h1 className="text-2xl font-bold text-white mb-2">{t.title}</h1>
+                            <p className="text-gray-200">{t.subtitle}</p>
+                        </div>
+
+                        <form onSubmit={handleSubmit} className="space-y-6">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-200 mb-2">
+                                    {t.username}
+                                </label>
+                                <input
+                                    type="text"
+                                    value={username}
+                                    onChange={(e) => setUsername(e.target.value)}
+                                    className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    required
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-200 mb-2">
+                                    {t.password}
+                                </label>
+                                <input
+                                    type="password"
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    required
+                                />
+                            </div>
+
+                            {error && (
+                                <div className="flex items-center space-x-2 text-red-400 text-sm">
+                                    <AlertCircle className="w-4 h-4" />
+                                    <span>{error}</span>
+                                </div>
+                            )}
+
+                            <button
+                                type="submit"
+                                disabled={isLoading}
+                                className="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white py-3 rounded-lg font-semibold hover:from-blue-600 hover:to-purple-700 transition-all duration-300 disabled:opacity-50"
+                            >
+                                {isLoading ? t.loading : t.loginButton}
+                            </button>
+                        </form>
+
+                        <div className="mt-6 text-center text-sm text-gray-300">
+                            Default credentials: admin / admin123
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // File Upload Component
+        const VideoUpload = ({ onUploadSuccess }) => {
+            const [isDragging, setIsDragging] = useState(false);
+            const [isUploading, setIsUploading] = useState(false);
+            const [uploadProgress, setUploadProgress] = useState(0);
+            const fileInputRef = useRef(null);
+            const { language } = React.useContext(LanguageContext);
+            const t = translations[language];
+
+            const handleDragOver = (e) => {
+                e.preventDefault();
+                setIsDragging(true);
+            };
+
+            const handleDragLeave = (e) => {
+                e.preventDefault();
+                setIsDragging(false);
+            };
+
+            const handleDrop = (e) => {
+                e.preventDefault();
+                setIsDragging(false);
+                
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    handleFileUpload(files[0]);
+                }
+            };
+
+            const handleFileSelect = (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    handleFileUpload(file);
+                }
+            };
+
+            const handleFileUpload = async (file) => {
+                // Validate file type
+                const allowedTypes = ['video/mp4', 'video/avi', 'video/mov', 'video/webm'];
+                if (!allowedTypes.includes(file.type)) {
+                    alert('Unsupported file format. Please use MP4, AVI, MOV, or WebM.');
+                    return;
+                }
+
+                // Validate file size (500MB limit)
+                if (file.size > 500 * 1024 * 1024) {
+                    alert('File too large. Maximum size is 500MB.');
+                    return;
+                }
+
+                setIsUploading(true);
+                setUploadProgress(0);
+
+                try {
+                    const formData = new FormData();
+                    formData.append('video', file);
+
+                    const response = await axios.post(`${API_BASE}/upload`, formData, {
+                        headers: {
+                            'Content-Type': 'multipart/form-data',
+                        },
+                        onUploadProgress: (progressEvent) => {
+                            const percentCompleted = Math.round(
+                                (progressEvent.loaded * 100) / progressEvent.total
+                            );
+                            setUploadProgress(percentCompleted);
+                        },
+                    });
+
+                    onUploadSuccess(response.data);
+                } catch (error) {
+                    console.error('Upload failed:', error);
+                    alert('Upload failed. Please try again.');
+                } finally {
+                    setIsUploading(false);
+                    setUploadProgress(0);
+                    if (fileInputRef.current) {
+                        fileInputRef.current.value = '';
+                    }
+                }
+            };
+
+            return (
+                <div className="space-y-6">
+                    <div
+                        className={`upload-area rounded-2xl p-12 text-center cursor-pointer transition-all duration-300 ${
+                            isDragging ? 'border-blue-400 bg-blue-500/10' : ''
+                        }`}
+                        onDragOver={handleDragOver}
+                        onDragLeave={handleDragLeave}
+                        onDrop={handleDrop}
+                        onClick={() => fileInputRef.current?.click()}
+                    >
+                        <div className="flex flex-col items-center space-y-4">
+                            <div className="w-20 h-20 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
+                                <Upload className="w-10 h-10 text-white" />
+                            </div>
+                            
+                            <div className={language === 'ar' ? 'ar-text' : ''}>
+                                <h3 className="text-xl font-semibold text-white mb-2">
+                                    {t.dragDrop}
+                                </h3>
+                                <p className="text-gray-300 mb-4">{t.orClick}</p>
+                                <p className="text-sm text-gray-400">{t.supportedFormats}</p>
+                            </div>
+                        </div>
+
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept="video/mp4,video/avi,video/mov,video/webm"
+                            onChange={handleFileSelect}
+                            className="hidden"
+                        />
+                    </div>
+
+                    {isUploading && (
+                        <div className="glass-card rounded-lg p-6">
+                            <div className="flex items-center space-x-4">
+                                <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
+                                    <Upload className="w-4 h-4 text-white animate-bounce" />
+                                </div>
+                                <div className="flex-1">
+                                    <p className="text-white font-medium">Uploading...</p>
+                                    <div className="w-full bg-gray-700 rounded-full h-2 mt-2">
+                                        <div 
+                                            className="progress-bar h-2 rounded-full"
+                                            style={{ width: `${uploadProgress}%` }}
+                                        ></div>
+                                    </div>
+                                </div>
+                                <span className="text-white font-bold">{uploadProgress}%</span>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // Analysis Status Component
+        const AnalysisStatus = ({ analysisId, onComplete }) => {
+            const [analysis, setAnalysis] = useState(null);
+            const [loading, setLoading] = useState(true);
+            const { language } = React.useContext(LanguageContext);
+            const t = translations[language];
+
+            useEffect(() => {
+                if (!analysisId) return;
+
+                const checkStatus = async () => {
+                    try {
+                        const response = await axios.get(`${API_BASE}/analysis/${analysisId}`);
+                        setAnalysis(response.data);
+
+                        if (response.data.status === 'completed' || response.data.status === 'error') {
+                            setLoading(false);
+                            if (onComplete) onComplete(response.data);
+                        }
+                    } catch (error) {
+                        console.error('Error fetching analysis status:', error);
+                        setLoading(false);
+                    }
+                };
+
+                checkStatus();
+
+                // Poll every 3 seconds if still processing
+                let interval;
+                if (loading) {
+                    interval = setInterval(checkStatus, 3000);
+                }
+
+                return () => {
+                    if (interval) clearInterval(interval);
+                };
+            }, [analysisId, loading, onComplete]);
+
+            if (!analysis) {
+                return (
+                    <div className="glass-card rounded-lg p-6 text-center">
+                        <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+                        <p className="text-white">{t.loading}</p>
+                    </div>
+                );
+            }
+
+            const getStatusIcon = (status) => {
+                switch (status) {
+                    case 'processing':
+                        return <Clock className="w-6 h-6 text-yellow-400 animate-spin" />;
+                    case 'completed':
+                        return <CheckCircle className="w-6 h-6 text-green-400" />;
+                    case 'error':
+                        return <AlertCircle className="w-6 h-6 text-red-400" />;
+                    default:
+                        return <Clock className="w-6 h-6 text-blue-400" />;
+                }
+            };
+
+            const getStatusText = (status) => {
+                switch (status) {
+                    case 'processing':
+                        return t.processing;
+                    case 'completed':
+                        return t.completed;
+                    case 'error':
+                        return t.error;
+                    default:
+                        return t.analyzing;
+                }
+            };
+
+            return (
+                <div className="space-y-6">
+                    <div className="glass-card rounded-lg p-6">
+                        <div className="flex items-center space-x-4 mb-4">
+                            {getStatusIcon(analysis.status)}
+                            <div>
+                                <h3 className="text-lg font-semibold text-white">
+                                    {getStatusText(analysis.status)}
+                                </h3>
+                                <p className="text-gray-300">{analysis.video_filename}</p>
+                            </div>
+                        </div>
+
+                        {analysis.status === 'processing' && (
+                            <div className="w-full bg-gray-700 rounded-full h-2">
+                                <div className="progress-bar h-2 rounded-full status-badge" style={{ width: '60%' }}></div>
+                            </div>
+                        )}
+                    </div>
+
+                    {analysis.status === 'completed' && analysis.results && (
+                        <AnalysisResults analysis={analysis} />
+                    )}
+                </div>
+            );
+        };
+
+        // Analysis Results Component
+        const AnalysisResults = ({ analysis }) => {
+            const { language } = React.useContext(LanguageContext);
+            const t = translations[language];
+
+            const downloadReport = async () => {
+                try {
+                    const response = await axios.get(`${API_BASE}/report/${analysis.analysis_id}/pdf`, {
+                        responseType: 'blob',
+                    });
+
+                    const blob = new Blob([response.data], { type: 'application/pdf' });
+                    const url = window.URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = `crash_report_${analysis.analysis_id}.pdf`;
+                    link.click();
+                    window.URL.revokeObjectURL(url);
+                } catch (error) {
+                    console.error('Error downloading report:', error);
+                    alert('Failed to download report');
+                }
+            };
+
+            const getAccidentTypeColor = (type) => {
+                return type === 'collision' ? 'text-red-400' : 'text-green-400';
+            };
+
+            const getConfidenceColor = (score) => {
+                if (score >= 0.8) return 'text-green-400';
+                if (score >= 0.6) return 'text-yellow-400';
+                return 'text-red-400';
+            };
+
+            return (
+                <div className="result-card glass-card rounded-lg p-6 space-y-6">
+                    <div className="flex items-center justify-between">
+                        <h3 className="text-xl font-bold text-white">{t.analysisResults}</h3>
+                        <button
+                            onClick={downloadReport}
+                            className="flex items-center space-x-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white px-4 py-2 rounded-lg hover:from-green-600 hover:to-emerald-700 transition-all duration-300"
+                        >
+                            <Download className="w-4 h-4" />
+                            <span>{t.downloadReport}</span>
+                        </button>
+                    </div>
+
+                    <div className="grid md:grid-cols-2 gap-6">
+                        <div className="space-y-4">
+                            <div className="bg-white/5 rounded-lg p-4">
+                                <div className="flex items-center space-x-2 mb-2">
+                                    <AlertCircle className="w-5 h-5 text-orange-400" />
+                                    <span className="text-gray-300 font-medium">{t.accidentType}</span>
+                                </div>
+                                <p className={`text-lg font-bold ${getAccidentTypeColor(analysis.accident_type)}`}>
+                                    {analysis.accident_type === 'collision' ? t.collision : t.noAccident}
+                                </p>
+                            </div>
+
+                            <div className="bg-white/5 rounded-lg p-4">
+                                <div className="flex items-center space-x-2 mb-2">
+                                    <Car className="w-5 h-5 text-blue-400" />
+                                    <span className="text-gray-300 font-medium">{t.responsibleVehicle}</span>
+                                </div>
+                                <p className="text-lg font-bold text-white">
+                                    {analysis.responsible_vehicle 
+                                        ? `${t.vehicle} ${analysis.responsible_vehicle}`
+                                        : 'Not determined'
+                                    }
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div className="bg-white/5 rounded-lg p-4">
+                                <div className="flex items-center space-x-2 mb-2">
+                                    <Shield className="w-5 h-5 text-purple-400" />
+                                    <span className="text-gray-300 font-medium">{t.confidence}</span>
+                                </div>
+                                <p className={`text-lg font-bold ${getConfidenceColor(analysis.confidence_score)}`}>
+                                    {(analysis.confidence_score * 100).toFixed(1)}%
+                                </p>
+                            </div>
+
+                            <div className="bg-white/5 rounded-lg p-4">
+                                <div className="flex items-center space-x-2 mb-2">
+                                    <Clock className="w-5 h-5 text-green-400" />
+                                    <span className="text-gray-300 font-medium">{t.processingTime}</span>
+                                </div>
+                                <p className="text-lg font-bold text-white">
+                                    {analysis.processing_time?.toFixed(2)} {t.seconds}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {analysis.results?.collision_events && analysis.results.collision_events.length > 0 && (
+                        <div className="bg-white/5 rounded-lg p-4">
+                            <h4 className="text-lg font-semibold text-white mb-4">Collision Events</h4>
+                            <div className="space-y-3">
+                                {analysis.results.collision_events.map((event, index) => (
+                                    <div key={index} className="bg-white/5 rounded-lg p-3">
+                                        <div className="flex justify-between items-center text-sm">
+                                            <span className="text-gray-300">Event {index + 1}</span>
+                                            <span className={`px-2 py-1 rounded ${
+                                                event.severity === 'high' ? 'bg-red-500/20 text-red-300' :
+                                                event.severity === 'medium' ? 'bg-yellow-500/20 text-yellow-300' :
+                                                'bg-green-500/20 text-green-300'
+                                            }`}>
+                                                {event.severity} severity
+                                            </span>
+                                        </div>
+                                        <p className="text-white mt-1">
+                                            Frame {event.frame} • Distance: {event.distance?.toFixed(1)}px
+                                        </p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // Dashboard Component
+        const Dashboard = () => {
+            const [activeTab, setActiveTab] = useState('upload');
+            const [analyses, setAnalyses] = useState([]);
+            const [currentAnalysis, setCurrentAnalysis] = useState(null);
+            const [systemHealth, setSystemHealth] = useState(null);
+            const { language, setLanguage } = React.useContext(LanguageContext);
+            const t = translations[language];
+
+            useEffect(() => {
+                fetchAnalyses();
+                fetchSystemHealth();
+            }, []);
+
+            const fetchAnalyses = async () => {
+                try {
+                    const response = await axios.get(`${API_BASE}/analyses`);
+                    setAnalyses(response.data.analyses);
+                } catch (error) {
+                    console.error('Error fetching analyses:', error);
+                }
+            };
+
+            const fetchSystemHealth = async () => {
+                try {
+                    const response = await axios.get(`${API_BASE}/health`);
+                    setSystemHealth(response.data);
+                } catch (error) {
+                    console.error('Error fetching system health:', error);
+                }
+            };
+
+            const handleUploadSuccess = (data) => {
+                setCurrentAnalysis(data.analysis_id);
+                setActiveTab('analysis');
+            };
+
+            const handleAnalysisComplete = (analysis) => {
+                fetchAnalyses(); // Refresh the list
+            };
+
+            const getStatusBadge = (status) => {
+                const colors = {
+                    processing: 'bg-yellow-500/20 text-yellow-300',
+                    completed: 'bg-green-500/20 text-green-300',
+                    error: 'bg-red-500/20 text-red-300',
+                    uploaded: 'bg-blue-500/20 text-blue-300'
+                };
+
+                return (
+                    <span className={`px-2 py-1 rounded text-xs ${colors[status] || 'bg-gray-500/20 text-gray-300'}`}>
+                        {status}
+                    </span>
+                );
+            };
+
+            const TabButton = ({ id, icon: Icon, children, isActive, onClick }) => (
+                <button
+                    onClick={() => onClick(id)}
+                    className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-all duration-300 ${
+                        isActive 
+                            ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white' 
+                            : 'text-gray-300 hover:text-white hover:bg-white/10'
+                    }`}
+                >
+                    <Icon className="w-4 h-4" />
+                    <span>{children}</span>
+                </button>
+            );
+
+            return (
+                <div className="min-h-screen p-6">
+                    <div className="max-w-7xl mx-auto">
+                        {/* Header */}
+                        <div className="glass-card rounded-2xl p-6 mb-8">
+                            <div className="flex justify-between items-center">
+                                <div className={language === 'ar' ? 'ar-text' : ''}>
+                                    <h1 className="text-3xl font-bold text-white">{t.title}</h1>
+                                    <p className="text-gray-300 mt-1">{t.subtitle}</p>
+                                </div>
+                                
+                                <div className="flex items-center space-x-4">
+                                    {systemHealth && (
+                                        <div className="flex items-center space-x-2 text-sm text-gray-300">
+                                            <Activity className={`w-4 h-4 ${systemHealth.model_loaded ? 'text-green-400' : 'text-red-400'}`} />
+                                            <span>{systemHealth.device.toUpperCase()}</span>
+                                        </div>
+                                    )}
+                                    
+                                    <button
+                                        onClick={() => setLanguage(language === 'en' ? 'ar' : 'en')}
+                                        className="flex items-center space-x-2 text-gray-300 hover:text-white transition-colors"
+                                    >
+                                        <Globe className="w-4 h-4" />
+                                        <span>{language === 'en' ? 'العربية' : 'English'}</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Navigation Tabs */}
+                        <div className="glass-card rounded-xl p-2 mb-8">
+                            <div className="flex space-x-2">
+                                <TabButton 
+                                    id="upload" 
+                                    icon={Upload} 
+                                    isActive={activeTab === 'upload'}
+                                    onClick={setActiveTab}
+                                >
+                                    {t.uploadVideo}
+                                </TabButton>
+                                <TabButton 
+                                    id="analyses" 
+                                    icon={BarChart3} 
+                                    isActive={activeTab === 'analyses'}
+                                    onClick={setActiveTab}
+                                >
+                                    {t.myAnalyses}
+                                </TabButton>
+                                <TabButton 
+                                    id="analysis" 
+                                    icon={Activity} 
+                                    isActive={activeTab === 'analysis'}
+                                    onClick={setActiveTab}
+                                >
+                                    Current Analysis
+                                </TabButton>
+                                <TabButton 
+                                    id="settings" 
+                                    icon={Settings} 
+                                    isActive={activeTab === 'settings'}
+                                    onClick={setActiveTab}
+                                >
+                                    {t.settings}
+                                </TabButton>
+                            </div>
+                        </div>
+
+                        {/* Tab Content */}
+                        <div className="glass-card rounded-2xl p-8">
+                            {activeTab === 'upload' && (
+                                <div className={language === 'ar' ? 'ar-text' : ''}>
+                                    <h2 className="text-2xl font-bold text-white mb-6">{t.uploadVideo}</h2>
+                                    <VideoUpload onUploadSuccess={handleUploadSuccess} />
+                                </div>
+                            )}
+
+                            {activeTab === 'analyses' && (
+                                <div className={language === 'ar' ? 'ar-text' : ''}>
+                                    <h2 className="text-2xl font-bold text-white mb-6">{t.recentAnalyses}</h2>
+                                    
+                                    {analyses.length === 0 ? (
+                                        <div className="text-center py-12">
+                                            <FileVideo className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                                            <p className="text-gray-400 text-lg">No analyses yet</p>
+                                            <p className="text-gray-500">Upload a video to get started</p>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-4">
+                                            {analyses.map((analysis) => (
+                                                <div key={analysis.analysis_id} className="bg-white/5 rounded-lg p-4">
+                                                    <div className="flex justify-between items-start">
+                                                        <div className="flex-1">
+                                                            <h3 className="font-semibold text-white mb-2">
+                                                                {analysis.video_filename}
+                                                            </h3>
+                                                            <div className="flex items-center space-x-4 text-sm text-gray-300">
+                                                                <span>{t.status}: {getStatusBadge(analysis.status)}</span>
+                                                                <span>{new Date(analysis.created_at).toLocaleDateString()}</span>
+                                                                {analysis.confidence_score && (
+                                                                    <span>Confidence: {(analysis.confidence_score * 100).toFixed(1)}%</span>
+                                                                )}
+                                                            </div>
+                                                            {analysis.accident_type && (
+                                                                <p className="text-sm text-gray-400 mt-1">
+                                                                    Type: {analysis.accident_type === 'collision' ? t.collision : t.noAccident}
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                        <button
+                                                            onClick={() => {
+                                                                setCurrentAnalysis(analysis.analysis_id);
+                                                                setActiveTab('analysis');
+                                                            }}
+                                                            className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors text-sm"
+                                                        >
+                                                            {t.viewDetails}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {activeTab === 'analysis' && (
+                                <div>
+                                    <h2 className="text-2xl font-bold text-white mb-6">Analysis Status</h2>
+                                    {currentAnalysis ? (
+                                        <AnalysisStatus 
+                                            analysisId={currentAnalysis} 
+                                            onComplete={handleAnalysisComplete}
+                                        />
+                                    ) : (
+                                        <div className="text-center py-12">
+                                            <Activity className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                                            <p className="text-gray-400 text-lg">No active analysis</p>
+                                            <p className="text-gray-500">Upload a video to start analysis</p>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {activeTab === 'settings' && (
+                                <div className={language === 'ar' ? 'ar-text' : ''}>
+                                    <h2 className="text-2xl font-bold text-white mb-6">{t.settings}</h2>
+                                    
+                                    <div className="space-y-6">
+                                        {/* Language Settings */}
+                                        <div className="bg-white/5 rounded-lg p-6">
+                                            <h3 className="text-lg font-semibold text-white mb-4">{t.languageSettings}</h3>
+                                            <div className="flex space-x-4">
+                                                <button
+                                                    onClick={() => setLanguage('en')}
+                                                    className={`px-4 py-2 rounded-lg transition-all ${
+                                                        language === 'en' 
+                                                            ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white' 
+                                                            : 'bg-white/10 text-gray-300 hover:bg-white/20'
+                                                    }`}
+                                                >
+                                                    {t.english}
+                                                </button>
+                                                <button
+                                                    onClick={() => setLanguage('ar')}
+                                                    className={`px-4 py-2 rounded-lg transition-all ${
+                                                        language === 'ar' 
+                                                            ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white' 
+                                                            : 'bg-white/10 text-gray-300 hover:bg-white/20'
+                                                    }`}
+                                                >
+                                                    {t.arabic}
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {/* System Health */}
+                                        {systemHealth && (
+                                            <div className="bg-white/5 rounded-lg p-6">
+                                                <h3 className="text-lg font-semibold text-white mb-4">{t.systemHealth}</h3>
+                                                <div className="space-y-3">
+                                                    <div className="flex justify-between items-center">
+                                                        <span className="text-gray-300">{t.modelStatus}</span>
+                                                        <div className="flex items-center space-x-2">
+                                                            <div className={`w-3 h-3 rounded-full ${
+                                                                systemHealth.model_loaded ? 'bg-green-400' : 'bg-red-400'
+                                                            }`}></div>
+                                                            <span className="text-white">
+                                                                {systemHealth.model_loaded ? 'Loaded' : 'Error'}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex justify-between items-center">
+                                                        <span className="text-gray-300">{t.deviceInfo}</span>
+                                                        <span className="text-white font-mono">
+                                                            {systemHealth.device.toUpperCase()}
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex justify-between items-center">
+                                                        <span className="text-gray-300">Last Update</span>
+                                                        <span className="text-white text-sm">
+                                                            {new Date(systemHealth.timestamp).toLocaleString()}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* User Guide */}
+                                        <div className="bg-white/5 rounded-lg p-6">
+                                            <h3 className="text-lg font-semibold text-white mb-4">Usage Guide</h3>
+                                            <div className="space-y-3 text-gray-300">
+                                                <div className="flex items-start space-x-3">
+                                                    <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-sm font-bold">1</div>
+                                                    <p>Upload dashcam video footage (MP4, AVI, MOV, WebM formats supported)</p>
+                                                </div>
+                                                <div className="flex items-start space-x-3">
+                                                    <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-sm font-bold">2</div>
+                                                    <p>AI system analyzes vehicle movements and detects potential collisions</p>
+                                                </div>
+                                                <div className="flex items-start space-x-3">
+                                                    <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-sm font-bold">3</div>
+                                                    <p>View detailed analysis results and download PDF reports</p>
+                                                </div>
+                                                <div className="flex items-start space-x-3">
+                                                    <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-sm font-bold">4</div>
+                                                    <p>Export reports for insurance claims or legal proceedings</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // Main App Component
+        const App = () => {
+            const { user, login, logout, loading } = useAuth();
+            const [language, setLanguage] = useState('en');
+
+            useEffect(() => {
+                const savedLanguage = localStorage.getItem('language');
+                if (savedLanguage) {
+                    setLanguage(savedLanguage);
+                }
+            }, []);
+
+            useEffect(() => {
+                localStorage.setItem('language', language);
+            }, [language]);
+
+            if (loading) {
+                return (
+                    <div className="min-h-screen flex items-center justify-center">
+                        <div className="animate-spin w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full"></div>
+                    </div>
+                );
+            }
+
+            return (
+                <LanguageContext.Provider value={{ language, setLanguage }}>
+                    {!user ? (
+                        <LoginForm onLogin={login} />
+                    ) : (
+                        <div>
+                            {/* Top Navigation Bar */}
+                            <nav className="bg-black/20 backdrop-blur-sm border-b border-white/10">
+                                <div className="max-w-7xl mx-auto px-6 py-4">
+                                    <div className="flex justify-between items-center">
+                                        <div className="flex items-center space-x-3">
+                                            <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
+                                                <Car className="w-5 h-5 text-white" />
+                                            </div>
+                                            <span className="text-white font-bold">Crash Analyzer</span>
+                                        </div>
+                                        
+                                        <div className="flex items-center space-x-4">
+                                            <div className="flex items-center space-x-2 text-sm text-gray-300">
+                                                <User className="w-4 h-4" />
+                                                <span>{user.username}</span>
+                                                <span className="px-2 py-1 bg-blue-500/20 text-blue-300 rounded text-xs">
+                                                    {user.role}
+                                                </span>
+                                            </div>
+                                            <button
+                                                onClick={logout}
+                                                className="flex items-center space-x-2 text-gray-300 hover:text-white transition-colors"
+                                            >
+                                                <LogOut className="w-4 h-4" />
+                                                <span>Logout</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </nav>
+                            
+                            <Dashboard />
+                        </div>
+                    )}
+                </LanguageContext.Provider>
+            );
+        };
+
+        // Render the app
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
